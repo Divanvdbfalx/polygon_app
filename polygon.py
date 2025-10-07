@@ -1,14 +1,12 @@
 import streamlit as st
+import os
 import zipfile
 import geopandas as gpd
+import fiona
+from shapely.geometry import MultiPoint, Polygon, LineString, MultiLineString
 import folium
-import os
-from shapely.geometry import LineString
 
-# ---------------------------------------------------------
-# --- Helper function to extract perimeter from KMZ ---
-# ---------------------------------------------------------
-def generate_turbine_perimeter_from_kmz(kmz_bytes, num_points=20, buffer_distance=0, zoom_start=12):
+def generate_turbine_perimeter_from_kmz(kmz_bytes, layer_name, num_points=20, zoom_start=12):
     os.makedirs("tmp_upload", exist_ok=True)
     tmp_kmz_path = "tmp_upload/uploaded.kmz"
     tmp_kml_dir = "tmp_upload/tmp_kml"
@@ -16,9 +14,10 @@ def generate_turbine_perimeter_from_kmz(kmz_bytes, num_points=20, buffer_distanc
     with open(tmp_kmz_path, "wb") as f:
         f.write(kmz_bytes)
 
-    with zipfile.ZipFile(tmp_kmz_path, 'r') as z:
+    with zipfile.ZipFile(tmp_kmz_path, "r") as z:
         z.extractall(tmp_kml_dir)
 
+    # Find KML file
     kml_path = None
     for file in os.listdir(tmp_kml_dir):
         if file.endswith(".kml"):
@@ -27,19 +26,19 @@ def generate_turbine_perimeter_from_kmz(kmz_bytes, num_points=20, buffer_distanc
     if not kml_path:
         raise FileNotFoundError("No .kml file found inside KMZ.")
 
-    gdf = gpd.read_file(kml_path, driver='KML')
+    # Load the specified layer
+    gdf = gpd.read_file(kml_path, driver="KML", layer=layer_name)
 
     if gdf.crs is None:
         gdf = gdf.set_crs("EPSG:4326")
 
-    # Project to UTM 35S (metric)
+    # Project to metric CRS (UTM 35S)
     gdf_m = gdf.to_crs("EPSG:32735")
 
     # Combine and make perimeter
     combined = gdf_m.union_all()
     perimeter = combined.convex_hull
-    if buffer_distance > 0:
-        perimeter = perimeter.buffer(buffer_distance)
+
 
     # Convert back to WGS84
     perimeter_gdf = gpd.GeoDataFrame(geometry=[perimeter], crs="EPSG:32735").to_crs("EPSG:4326")
@@ -86,44 +85,68 @@ def generate_turbine_perimeter_from_kmz(kmz_bytes, num_points=20, buffer_distanc
     return html_bytes, txt_content
 
 
+
+
 # ---------------------------------------------------------
 # --- Streamlit UI ---
 # ---------------------------------------------------------
-st.title("Wind Turbine Perimeter Generator")
+st.title("💨 Wind Turbine Perimeter Generator")
 st.markdown("Upload a KMZ file to generate a polygon around turbine locations.")
 
 uploaded_file = st.file_uploader("Upload KMZ file", type=["kmz"])
 num_points = st.slider("Number of perimeter points", 4, 20, 10)
-buffer_distance = st.number_input("Buffer distance (meters)", 0, 1000, 0)
 
-# Button to generate
-if uploaded_file and st.button("Generate Perimeter Map"):
-    with st.spinner("Processing..."):
-        html_bytes, txt_content = generate_turbine_perimeter_from_kmz(
-            uploaded_file.read(),
-            num_points=num_points,
-            buffer_distance=buffer_distance
-        )
-        # Store results in session state
-        st.session_state["map_html"] = html_bytes
-        st.session_state["txt_content"] = txt_content
-        st.success("Perimeter generated successfully!")
+# --- When KMZ is uploaded, show available layers ---
+if uploaded_file:
+    os.makedirs("tmp_upload", exist_ok=True)
+    tmp_kmz_path = "tmp_upload/uploaded.kmz"
+    tmp_kml_dir = "tmp_upload/tmp_kml"
 
-# Display map if available
+    with open(tmp_kmz_path, "wb") as f:
+        f.write(uploaded_file.read())
+
+    with zipfile.ZipFile(tmp_kmz_path, "r") as z:
+        z.extractall(tmp_kml_dir)
+
+    kml_path = None
+    for file in os.listdir(tmp_kml_dir):
+        if file.endswith(".kml"):
+            kml_path = os.path.join(tmp_kml_dir, file)
+            break
+
+    if kml_path:
+        layers = fiona.listlayers(kml_path)
+        selected_layer = st.selectbox("Select KML layer", layers)
+
+        # --- Generate Perimeter Button ---
+        if st.button("Generate Perimeter Map"):
+            with st.spinner("Processing..."):
+                html_bytes, txt_content = generate_turbine_perimeter_from_kmz(
+                    open(tmp_kmz_path, "rb").read(),
+                    layer_name=selected_layer,
+                    num_points=num_points,
+                )
+                # Store in session_state for persistence
+                st.session_state["map_html"] = html_bytes
+                st.session_state["txt_content"] = txt_content
+                st.success("✅ Perimeter generated successfully!")
+
+
+# --- Display map and download buttons ---
 if "map_html" in st.session_state:
     st.markdown("### 🌍 Perimeter Map")
     st.components.v1.html(st.session_state["map_html"].decode(), height=600)
 
-    # Download buttons
     st.download_button(
         "📥 Download Map (HTML)",
         st.session_state["map_html"],
-        file_name="SanKraal_WindFarm.html",
-        mime="text/html"
+        file_name="Map.html",
+        mime="text/html",
     )
+
     st.download_button(
         "📥 Download Polygon Points (TXT)",
         st.session_state["txt_content"],
-        file_name="SanKraal_PolygonPoints.txt",
-        mime="text/plain"
+        file_name="PolygonPoints.txt",
+        mime="text/plain",
     )
