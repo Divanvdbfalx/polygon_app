@@ -1,0 +1,19 @@
+# Core geospatial libraries
+geopandas
+shapely
+fiona
+pyproj
+rtree
+
+# KML/KMZ handling
+fastkml
+simplekml
+
+# Visualization
+matplotlib
+cartopy
+folium
+
+# Utility
+pandas
+numpy
