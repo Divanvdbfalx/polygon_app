@@ -3,7 +3,7 @@ import os
 import zipfile
 import geopandas as gpd
 import fiona
-from shapely.geometry import MultiPoint, Polygon, LineString, MultiLineString
+from shapely.geometry import LineString
 import folium
 
 def generate_turbine_perimeter_from_kmz(kmz_bytes, layer_name, num_points=20, zoom_start=12):
