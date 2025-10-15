@@ -39,7 +39,6 @@ def generate_turbine_perimeter_from_kmz(kmz_bytes, layer_name, num_points=20, zo
     combined = gdf_m.union_all()
     perimeter = combined.convex_hull
 
-
     # Convert back to WGS84
     perimeter_gdf = gpd.GeoDataFrame(geometry=[perimeter], crs="EPSG:32735").to_crs("EPSG:4326")
     perimeter = perimeter_gdf.geometry.iloc[0]
@@ -66,6 +65,7 @@ def generate_turbine_perimeter_from_kmz(kmz_bytes, layer_name, num_points=20, zo
         style_function=lambda x: {'color': 'red', 'weight': 2, 'fillOpacity': 0.1}
     ).add_to(m)
 
+    # Add perimeter sample points
     for i, (lon, lat) in enumerate(resampled_coords):
         folium.CircleMarker(
             location=[lat, lon],
@@ -75,16 +75,24 @@ def generate_turbine_perimeter_from_kmz(kmz_bytes, layer_name, num_points=20, zo
             popup=f"Point {i+1}"
         ).add_to(m)
 
+    # Add centroid marker
+    folium.Marker(
+        location=center,
+        popup=f"Centroid\nLat: {center[0]:.6f}, Lon: {center[1]:.6f}",
+        icon=folium.Icon(color='green', icon='star')
+    ).add_to(m)
+
     folium.LayerControl().add_to(m)
 
     html_bytes = m._repr_html_().encode('utf-8')
-    txt_content = "Perimeter Points (longitude, latitude):\n" + "\n".join(
-        [f"{i+1}: {coord}" for i, coord in enumerate(resampled_coords)]
+    txt_content = (
+        "Perimeter Points (longitude, latitude):\n"
+        + "\n".join([f"{i+1}: {coord}" for i, coord in enumerate(resampled_coords)])
+        + "\n\nCentroid (latitude, longitude):\n"
+        + f"{center[0]:.6f}, {center[1]:.6f}"
     )
 
-    return html_bytes, txt_content
-
-
+    return html_bytes, txt_content, center
 
 
 # ---------------------------------------------------------
@@ -121,21 +129,26 @@ if uploaded_file:
         # --- Generate Perimeter Button ---
         if st.button("Generate Perimeter Map"):
             with st.spinner("Processing..."):
-                html_bytes, txt_content = generate_turbine_perimeter_from_kmz(
+                html_bytes, txt_content, centroid_coords = generate_turbine_perimeter_from_kmz(
                     open(tmp_kmz_path, "rb").read(),
                     layer_name=selected_layer,
                     num_points=num_points,
                 )
-                # Store in session_state for persistence
                 st.session_state["map_html"] = html_bytes
                 st.session_state["txt_content"] = txt_content
-                st.success("✅ Perimeter generated successfully!")
+                st.session_state["centroid_coords"] = centroid_coords
+                st.success("✅ Perimeter and centroid generated successfully!")
 
 
-# --- Display map and download buttons ---
+# --- Display map, centroid, and download buttons ---
 if "map_html" in st.session_state:
     st.markdown("### 🌍 Perimeter Map")
     st.components.v1.html(st.session_state["map_html"].decode(), height=600)
+
+    st.markdown("### 📍 Centroid of Wind Farm")
+    lat, lon = st.session_state["centroid_coords"]
+    st.write(f"**Latitude:** {lat:.6f}")
+    st.write(f"**Longitude:** {lon:.6f}")
 
     st.download_button(
         "📥 Download Map (HTML)",
@@ -145,7 +158,7 @@ if "map_html" in st.session_state:
     )
 
     st.download_button(
-        "📥 Download Polygon Points (TXT)",
+        "📥 Download Polygon Points + Centroid (TXT)",
         st.session_state["txt_content"],
         file_name="PolygonPoints.txt",
         mime="text/plain",

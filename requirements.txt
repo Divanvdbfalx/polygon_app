@@ -17,3 +17,5 @@ folium
 # Utility
 pandas
 numpy
+
+streamlit
