@@ -57,7 +57,15 @@ def generate_turbine_perimeter_from_kmz(kmz_bytes, layer_name, num_points=20, zo
     center = [centroid_wgs.y, centroid_wgs.x]
 
     # --- Extract turbine coordinates (original KMZ locations) ---
-    turbines_coords = [(geom.x, geom.y) for geom in gdf.geometry]
+    turbines_coords = []
+    for geom in gdf.geometry:
+        if geom.geom_type == "Point":
+            turbines_coords.append((geom.x, geom.y))
+        elif geom.geom_type in ["MultiPoint", "GeometryCollection"]:
+            for subgeom in geom.geoms:
+                if subgeom.geom_type == "Point":
+                    turbines_coords.append((subgeom.x, subgeom.y))
+
 
     # Create folium map
     m = folium.Map(location=center, zoom_start=zoom_start)
